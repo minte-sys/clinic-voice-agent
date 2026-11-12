@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Al Noor Family Clinic (demo): booking assistant</title>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f5; --card: #ffffff; --ink: #18211e; --muted: #5d6b66; --line: #dbe2df;
+    --accent: #0f766e; --accent-ink: #ffffff; --user: #e3f1ef; --agent: #f1f3f2; --warn: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111715; --card: #1a2220; --ink: #e8eeec; --muted: #9babA6; --line: #2c3835;
+            --accent: #2aa397; --accent-ink: #08110f; --user: #17332f; --agent: #222c29; --warn: #f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px; min-height: 100vh;
+         display: flex; flex-direction: column; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 0.95rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  label { display: block; font-weight: 600; margin-bottom: 8px; }
+  select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); font: inherit; margin-bottom: 20px; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); padding: 10px 14px; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .choice { padding: 18px 14px; text-align: left; }
+  .choice strong { display: block; font-size: 1.05rem; }
+  .choice span { color: var(--muted); font-size: 0.9rem; }
+  .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .primary span { color: inherit; opacity: 0.85; }
+  .note { color: var(--muted); font-size: 0.85rem; margin: 16px 0 0; }
+  .error { color: var(--warn); margin: 12px 0 0; min-height: 1.5em; }
+  #chat { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  #status { flex: 1; color: var(--muted); font-size: 0.9rem; }
+  #log { flex: 1; overflow-y: auto; min-height: 320px; max-height: 62vh; padding: 14px;
+         display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 85%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.agent { background: var(--agent); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .msg.user { background: var(--user); align-self: flex-end; border-bottom-right-radius: 4px; }
+  .msg.pending { opacity: 0.7; }
+  form { display: flex; gap: 8px; margin-top: 12px; }
+  input[type=text] { flex: 1; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line);
+                     background: var(--card); color: var(--ink); font: inherit; min-width: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Al Noor Family Clinic <small>(demo)</small></h1>
+  <p class="sub">Book, change or cancel an appointment with our AI assistant.</p>
+
+  <section id="start" class="card">
+    <label for="language">Language</label>
+    <select id="language">
+      <option value="en">English</option>
+      <option value="ar">العربية</option>
+      <option value="hi">हिन्दी</option>
+      <option value="zh">中文</option>
+      <option value="ru">Русский</option>
+    </select>
+
+    <label id="how">How would you like to get help?</label>
+    <div class="choices" role="group" aria-labelledby="how">
+      <button class="choice primary" id="talk"><strong>Talk</strong><span>Speak with the assistant. Uses your microphone.</span></button>
+      <button class="choice" id="type"><strong>Type</strong><span>Chat by text. No microphone needed.</span></button>
+    </div>
+    <p class="note">This is a demo with fictional doctors. The assistant cannot give medical advice. In an emergency, call your local emergency number.</p>
+    <p class="error" id="startError" role="alert"></p>
+  </section>
+
+  <section id="chat">
+    <div class="bar">
+      <span id="status" role="status">Connecting…</span>
+      <button id="mute" hidden>Mute</button>
+      <button id="end">End</button>
+    </div>
+    <div id="log" class="card" aria-live="polite"></div>
+    <form id="composer">
+      <input type="text" id="text" autocomplete="off" dir="auto" aria-label="Message"
+             placeholder="Type a message">
+      <button class="primary" id="send">Send</button>
+    </form>
+    <p class="note" id="hint"></p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const { Room, RoomEvent, Track } = window.LivekitClient || {};
+  let room = null;
+  let mode = "voice";
+  const bubbles = new Map();   // transcription segment id -> message element
+
+  function setStatus(text) { $("status").textContent = text; }
+
+  function addMessage(who, text, key) {
+    let el = key ? bubbles.get(key) : null;
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "msg " + who;
+      el.dir = "auto";
+      $("log").appendChild(el);
+      if (key) bubbles.set(key, el);
+    }
+    el.textContent = text;
+    $("log").scrollTop = $("log").scrollHeight;
+    return el;
+  }
+
+  // The agent's replies, and in voice mode the transcript of what you said,
+  // arrive as text streams on the lk.transcription topic.
+  async function onTranscription(reader, participantInfo) {
+    const attrs = reader.info.attributes || {};
+    const key = attrs["lk.segment_id"] || reader.info.id;
+    const mine = room && participantInfo.identity === room.localParticipant.identity;
+    const final = attrs["lk.transcription_final"];
+    let text = "";
+    for await (const chunk of reader) {
+      text += chunk;
+      const el = addMessage(mine ? "user" : "agent", text, key);
+      el.classList.toggle("pending", final === "false");
+    }
+  }
+
+  async function start(chosenMode) {
+    mode = chosenMode;
+    $("startError").textContent = "";
+    if (!Room) {
+      $("startError").textContent = "The LiveKit library did not load. Check your internet connection and reload.";
+      return;
+    }
+    $("talk").disabled = $("type").disabled = true;
+    try {
+      const reply = await fetch("/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, language: $("language").value }),
+      });
+      const data = await reply.json();
+      if (!reply.ok) throw new Error(data.error || "The server could not start a session.");
+
+      room = new Room();
+      room.registerTextStreamHandler("lk.transcription", onTranscription);
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) document.body.appendChild(track.attach());
+      });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach((el) => el.remove()));
+      room.on(RoomEvent.ParticipantConnected, () => setStatus(readyText()));
+      room.on(RoomEvent.Disconnected, () => { if (room) finish("The conversation has ended."); });
+
+      $("start").style.display = "none";
+      $("chat").style.display = "flex";
+      $("log").textContent = "";
+      bubbles.clear();
+      setStatus("Connecting…");
+
+      await room.connect(data.url, data.token);
+      if (mode === "voice") {
+        await room.startAudio();
+        await room.localParticipant.setMicrophoneEnabled(true);
+        $("mute").hidden = false;
+        $("hint").textContent = "You can also type, for example to spell a name or enter a phone number.";
+      } else {
+        $("hint").textContent = "";
+        $("text").focus();
+      }
+      setStatus(room.remoteParticipants.size ? readyText() : "Waiting for the assistant…");
+    } catch (err) {
+      finish("");
+      $("startError").textContent = err.message || String(err);
+    }
+  }
+
+  function readyText() {
+    return mode === "voice" ? "Connected. Speak when you are ready." : "Connected. Type your message below.";
+  }
+
+  function showStart() {
+    $("chat").style.display = "none";
+    $("start").style.display = "block";
+    $("send").disabled = $("text").disabled = false;
+    $("text").value = "";
+    $("end").textContent = "End";
+    $("talk").disabled = $("type").disabled = false;
+  }
+
+  // Ends the session. With no message (the person pressed End, or starting failed) the
+  // page goes straight back to the start screen. With a message (the connection dropped
+  // or the assistant left) the transcript stays visible and End becomes "Start over".
+  function finish(message) {
+    const old = room;
+    room = null;
+    if (old) old.disconnect();
+    document.querySelectorAll("audio").forEach((el) => el.remove());
+    $("mute").hidden = true;
+    $("mute").textContent = "Mute";
+    if (message && $("chat").style.display === "flex") {
+      setStatus(message);
+      $("send").disabled = $("text").disabled = true;
+      $("end").textContent = "Start over";
+    } else {
+      showStart();
+    }
+  }
+
+  $("talk").addEventListener("click", () => start("voice"));
+  $("type").addEventListener("click", () => start("text"));
+  $("end").addEventListener("click", () => finish(""));
+
+  $("mute").addEventListener("click", async () => {
+    if (!room) return;
+    const enable = !room.localParticipant.isMicrophoneEnabled;
+    await room.localParticipant.setMicrophoneEnabled(enable);
+    $("mute").textContent = enable ? "Mute" : "Unmute";
+  });
+
+  $("composer").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = $("text").value.trim();
+    if (!text || !room) return;
+    $("text").value = "";
+    addMessage("user", text);
+    try {
+      await room.localParticipant.sendText(text, { topic: "lk.chat" });
+    } catch (err) {
+      setStatus("Message not sent: " + (err.message || err));
+    }
+  });
+})();
+</script>
+</body>
+</html>

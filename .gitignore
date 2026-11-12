@@ -1,0 +1,21 @@
+# Secrets: LiveKit keys live here. Never commit.
+.env
+.env.local
+
+# Local data: bookings and the audit log contain names and phone numbers.
+clinic.db
+*.db
+audit.jsonl
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

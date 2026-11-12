@@ -1,0 +1,8 @@
+# Agent runtime and the web page's token endpoint.
+livekit-agents~=1.8
+livekit-api
+python-dotenv>=1.0
+# Time zone data (Windows has none built in).
+tzdata
+# Tests
+pytest>=8
