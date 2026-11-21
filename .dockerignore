@@ -1,0 +1,12 @@
+# Keep secrets and local data out of the agent image (LiveKit Cloud injects its own keys).
+.env
+.env.*
+!.env.example
+*.db
+audit.jsonl
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.git/
+tests/

@@ -1,0 +1,24 @@
+# Render Blueprint for the web page and token server (free plan).
+# The agent itself runs on LiveKit Cloud; see "Put it online" in README.md.
+services:
+  - type: web
+    name: clinic-assistant-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-web.txt
+    startCommand: python web_server.py
+    healthCheckPath: /health
+    envVars:
+      # Same LiveKit project as the deployed agent. Render asks for these on first deploy.
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"
+      - key: TOKEN_LIMIT_PER_IP
+        value: "5"
+      - key: TOKEN_LIMIT_GLOBAL
+        value: "60"

@@ -37,6 +37,12 @@
   .primary span { color: inherit; opacity: 0.85; }
   .note { color: var(--muted); font-size: 0.85rem; margin: 16px 0 0; }
   .error { color: var(--warn); margin: 12px 0 0; min-height: 1.5em; }
+  /* Inside the website widget: tighter, the panel already has a title bar */
+  body.embed main { padding: 14px 12px; }
+  body.embed h1 { font-size: 1.1rem; }
+  body.embed .sub { margin-bottom: 14px; }
+  body.embed #log { max-height: none; min-height: 0; }
+  body.embed .choices { grid-template-columns: 1fr; }
   #chat { display: none; flex: 1; flex-direction: column; min-height: 0; }
   .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   #status { flex: 1; color: var(--muted); font-size: 0.9rem; }
@@ -71,7 +77,7 @@
       <button class="choice primary" id="talk"><strong>Talk</strong><span>Speak with the assistant. Uses your microphone.</span></button>
       <button class="choice" id="type"><strong>Type</strong><span>Chat by text. No microphone needed.</span></button>
     </div>
-    <p class="note">This is a demo with fictional doctors. The assistant cannot give medical advice. In an emergency, call your local emergency number.</p>
+    <p class="note">This is a demo with fictional doctors: please use a made-up name and phone number. The assistant cannot give medical advice. In an emergency, call your local emergency number.</p>
     <p class="error" id="startError" role="alert"></p>
   </section>
 
@@ -94,6 +100,12 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
+
+  // Opened from the website widget (widget.js): compact layout, optional language.
+  const params = new URLSearchParams(location.search);
+  if (params.get("embed") === "1") document.body.classList.add("embed");
+  const wanted = params.get("lang");
+  if (wanted && [...$("language").options].some((o) => o.value === wanted)) $("language").value = wanted;
   const { Room, RoomEvent, Track } = window.LivekitClient || {};
   let room = null;
   let mode = "voice";

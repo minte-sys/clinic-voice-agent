@@ -24,6 +24,19 @@ SEARCH_AHEAD_DAYS = 14
 MIN_PHONE_DIGITS = 9
 
 
+def valid_phone(number: str) -> bool:
+    """`number` as returned by normalize_phone.
+
+    UAE numbers must have the right length: a local number (05X XXX XXXX) is
+    10 digits and becomes 971 plus 9. Other countries: 9 to 15 digits.
+    """
+    if number.startswith("0"):              # local number of the wrong length
+        return False
+    if number.startswith("971"):
+        return len(number) == 12
+    return MIN_PHONE_DIGITS <= len(number) <= 15
+
+
 class ClinicService:
     def __init__(
         self,
@@ -123,6 +136,42 @@ class ClinicService:
                     break
         return self._done("find_slots", args, result)
 
+    def check_booking(self, doctor_id: str, start: str, patient_name: str, phone: str) -> dict:
+        """Validate a booking before the read-back, without booking anything.
+
+        Catches a slot taken since it was offered, a bad phone number or a missing
+        name before the caller is asked to confirm, and returns the details as
+        phrases ready to read back.
+        """
+        args = {"doctor_id": doctor_id, "start": start, "patient_name": patient_name, "phone": phone}
+        when = self._parse_start(start)
+        if when is None:
+            return self._fail("check_booking", args, "invalid_time",
+                              "Use a start value returned by find_slots.")
+        try:
+            doctor = self.store.doctor(doctor_id)
+        except StoreError as exc:
+            return self._fail("check_booking", args, exc.code, str(exc))
+        number = normalize_phone(phone)
+        if not valid_phone(number):
+            return self._fail("check_booking", args, "invalid_phone",
+                              "That phone number has the wrong number of digits. UAE mobiles have "
+                              "10 digits, like 050 123 4567. Ask the caller to repeat or type it.")
+        if len((patient_name or "").strip()) < 2:
+            return self._fail("check_booking", args, "invalid_name", "Ask for the patient's name.")
+        when = when.astimezone(self.store.tz)
+        if when not in self.store.open_slots(doctor.id, when.date(), self.now()):
+            return self._fail("check_booking", args, "slot_unavailable",
+                              "That slot is no longer free. Call find_slots again and offer others.")
+        return self._done("check_booking", args, {
+            "ok": True,
+            "doctor": self._name(doctor),
+            "start": when.isoformat(),
+            "spoken": spoken_slot(when, self.language),
+            "patient_name": patient_name.strip(),
+            "phone_spoken": spoken_digits(number),
+        })
+
     def book_appointment(
         self, doctor_id: str, start: str, patient_name: str, phone: str, idempotency_key: str
     ) -> dict:
@@ -133,9 +182,10 @@ class ClinicService:
             return self._fail("book_appointment", args, "invalid_time",
                               "Use a start value returned by find_slots.")
         number = normalize_phone(phone)
-        if len(number) < MIN_PHONE_DIGITS:
+        if not valid_phone(number):
             return self._fail("book_appointment", args, "invalid_phone",
-                              "Phone number looks incomplete. Ask the caller to repeat it.")
+                              "That phone number has the wrong number of digits. UAE mobiles have "
+                              "10 digits, like 050 123 4567. Ask the caller to repeat or type it.")
         if len((patient_name or "").strip()) < 2:
             return self._fail("book_appointment", args, "invalid_name", "Ask for the patient's name.")
         try:

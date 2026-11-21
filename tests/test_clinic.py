@@ -208,3 +208,59 @@ def test_phone_and_digit_helpers():
 def test_now_plus_small_delta_is_bookable_only_on_grid(service):
     soon = (NOW + timedelta(minutes=30)).isoformat()
     assert book(service, start=soon)["ok"]
+
+
+# ---- check_booking (validation before the read-back) -------------------------------
+
+def test_check_booking_returns_read_back_without_booking(service):
+    result = service.check_booking("dr-haddad", WED_10, "Sara Ali", "050 123 4567")
+    assert result["ok"] and result["spoken"] == "Wednesday, November 11 at 10 in the morning"
+    assert result["phone_spoken"] == "9 7 1 5 0 1 2 3 4 5 6 7"
+    assert result["doctor"] == "Dr. Layla Haddad"
+    assert service.find_appointments("0501234567")["appointments"] == []    # nothing booked
+
+
+def test_check_booking_follows_caller_language(service):
+    service.set_language("ar")
+    result = service.check_booking("dr-haddad", WED_10, "سارة علي", "0501234567")
+    assert result["doctor"] == "الدكتورة ليلى حداد"
+    assert result["spoken"].startswith("يوم الأربعاء")
+
+
+@pytest.mark.parametrize("args, error", [
+    (("dr-haddad", "soon", "Sara Ali", "0501234567"), "invalid_time"),
+    (("dr-nobody", WED_10, "Sara Ali", "0501234567"), "unknown_doctor"),
+    (("dr-haddad", WED_10, "Sara Ali", "12345"), "invalid_phone"),
+    (("dr-haddad", WED_10, " ", "0501234567"), "invalid_name"),
+    (("dr-haddad", "2026-11-13T10:00:00+04:00", "Sara Ali", "0501234567"), "slot_unavailable"),
+])
+def test_check_booking_rejects_bad_details(service, args, error):
+    assert service.check_booking(*args)["error"] == error
+
+
+def test_check_booking_catches_slot_taken_since_offer(service):
+    book(service, "k1", phone="0507777777")
+    assert service.check_booking("dr-haddad", WED_10, "Sara Ali", "0501234567")["error"] == "slot_unavailable"
+
+
+# ---- phone number lengths (from a test call: a 12-digit "05..." number was accepted) ---
+
+@pytest.mark.parametrize("raw, ok", [
+    ("050 123 4567", True),           # UAE local mobile, 10 digits
+    ("+971 50 123 4567", True),
+    ("00971501234567", True),
+    ("056632150934", False),          # 12 digits starting with 0
+    ("05012345", False),              # too short
+    ("+97150123456789", False),       # UAE with extra digits
+    ("+44 20 7946 0958", True),       # other country
+    ("12345", False),
+])
+def test_phone_length_rules(service, raw, ok):
+    result = service.check_booking("dr-haddad", WED_10, "Sara Ali", raw)
+    assert result["ok"] is ok
+    if not ok:
+        assert result["error"] == "invalid_phone" and "10 digits" in result["message"]
+
+
+def test_booking_refuses_wrong_length_phone(service):
+    assert book(service, phone="056632150934")["error"] == "invalid_phone"

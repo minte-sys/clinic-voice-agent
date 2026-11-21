@@ -1,0 +1,3 @@
+# Only what the hosted web server needs (lighter than requirements.txt).
+livekit-api
+python-dotenv>=1.0
